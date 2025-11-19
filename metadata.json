@@ -1,0 +1,8 @@
+{
+  "name": "Il Vicino",
+  "description": "A smart contextual translator and language tutor for expats in Italy, featuring frequency-based memory aids and Czech phonetics.",
+  "requestFramePermissions": [
+    "geolocation",
+    "microphone"
+  ]
+}
