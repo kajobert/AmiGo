@@ -4,31 +4,44 @@ export enum AppMode {
   LISTENING = 'LISTENING', // IT -> CZ
 }
 
+export type TargetLanguage = 'it' | 'es' | 'fr' | 'de';
+export type UILanguage = 'en' | 'cs' | 'it';
+
 export interface VocabularyItem {
-  word: string; // Lemma (e.g. 'andare')
-  originalForm: string; // Used form (e.g. 'vado')
-  inputMatch: string; // The word from user input that triggered this (e.g. 'kvatro' or 'quattro' or 'čtyři')
+  word: string; 
+  originalForm: string; 
+  inputMatch: string; 
   translation: string;
   phonetics: string;
-  status?: 'win' | 'lookup'; // Calculated locally
+  status?: 'win' | 'lookup'; 
+  matchType?: string; 
 }
 
 export interface TranslationResult {
   original: string;
   translation: string;
-  phonetics?: string | null; // Only for Italian results (CZ phonetics)
+  czechDefinition: string; 
+  phonetics?: string | null; 
   detectedLanguage?: string;
   vocabulary?: VocabularyItem[];
 }
 
+export interface TranslationHistoryItem extends TranslationResult {
+  id: string;
+  timestamp: number;
+  mode: AppMode;
+  targetLang: TargetLanguage;
+}
+
 export interface WordItem {
   word: string;
-  usedForms: string[]; // List of variations seen (e.g., pivo, piva, pivu)
+  language: TargetLanguage; // New: Filter by language
+  usedForms: string[]; 
   translation?: string;
   phonetics?: string;
-  count: number; // Current Heat (Lookups - Wins)
-  lookups: number; // Total times searched (CZ->IT)
-  wins: number; // Total times used correctly (IT->CZ)
+  count: number; 
+  lookups: number; 
+  wins: number; 
   lastUsed: number;
 }
 
@@ -38,8 +51,28 @@ export interface ContextSuggestion {
   phonetics: string;
 }
 
-export interface FutureRoadmap {
-  voiceMode: boolean;
-  contextAwareness: boolean;
-  monetization: boolean;
+export interface Badge {
+  id: string;
+  name: string;
+  icon: string;
+  description: string;
+  unlocked: boolean;
+  dateUnlocked?: number;
+}
+
+export interface UserProfile {
+  name: string;
+  avatar: string;
+  xp: number;
+  level: number;
+  badges: Badge[];
+  uiLanguage: UILanguage;
+  targetLanguage: TargetLanguage;
+}
+
+export interface DailyStats {
+  date: string; // YYYY-MM-DD
+  energyUsed: number;
+  streak: number;
+  lastStreakDate: string;
 }
