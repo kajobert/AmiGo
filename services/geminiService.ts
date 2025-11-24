@@ -1,31 +1,54 @@
-
-import { GoogleGenAI, Type, Schema } from "@google/genai";
 import { AppMode, TranslationResult, ContextSuggestion, TargetLanguage, UILanguage } from "../types";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// Define the PHP proxy endpoint
+const API_ENDPOINT = "api.php";
 
-const vocabularyItemSchema: Schema = {
-  type: Type.OBJECT,
+// --- SCHEMAS (Plain Objects instead of SDK Types) ---
+
+const vocabularyItemSchema = {
+  type: "OBJECT",
   properties: {
-    word: { type: Type.STRING, description: "Lemma/Base form (e.g. 'Stare')." },
-    originalForm: { type: Type.STRING, description: "Form used in sentence (e.g. 'Stai')." },
-    translation: { type: Type.STRING, description: "Translation of this specific word." }
+    word: { type: "STRING", description: "Lemma/Base form (e.g. 'Stare')." },
+    originalForm: { type: "STRING", description: "Form used in sentence (e.g. 'Stai')." },
+    translation: { type: "STRING", description: "Translation of this specific word." }
   },
   required: ["word", "originalForm", "translation"]
 };
 
-const translationSchema: Schema = {
-  type: Type.OBJECT,
+const translationSchema = {
+  type: "OBJECT",
   properties: {
-    translation: { type: Type.STRING, description: "Correct sentence in target language." },
-    czechDefinition: { type: Type.STRING, description: "Meaning in source language." },
-    phonetics: { type: Type.STRING, description: "Sentence phonetics (Czech style, no IPA).", nullable: true },
-    detectedLanguage: { type: Type.STRING, description: "Detected language code." },
-    isNonsense: { type: Type.BOOLEAN, description: "True if input is random gibberish.", nullable: true },
-    vocabulary: { type: Type.ARRAY, items: vocabularyItemSchema, description: "List of words found in the TARGET sentence." }
+    translation: { type: "STRING", description: "Correct sentence in target language." },
+    czechDefinition: { type: "STRING", description: "Meaning in source language." },
+    phonetics: { type: "STRING", description: "Sentence phonetics (Czech style, no IPA).", nullable: true },
+    detectedLanguage: { type: "STRING", description: "Detected language code." },
+    isNonsense: { type: "BOOLEAN", description: "True if input is random gibberish.", nullable: true },
+    vocabulary: { type: "ARRAY", items: vocabularyItemSchema, description: "List of words found in the TARGET sentence." }
   },
   required: ["translation", "czechDefinition", "detectedLanguage"],
 };
+
+const contextSuggestionSchema = {
+  type: "OBJECT",
+  properties: {
+    placeType: { type: "STRING", description: "The type of place identified." },
+    suggestions: {
+      type: "ARRAY",
+      items: {
+        type: "OBJECT",
+        properties: {
+          phrase: { type: "STRING" },
+          translation: { type: "STRING" },
+          phonetics: { type: "STRING" }
+        },
+        required: ["phrase", "translation", "phonetics"]
+      }
+    }
+  },
+  required: ["placeType", "suggestions"]
+};
+
+// --- LANGUAGES ---
 
 const LANGUAGES = {
   it: "Italian",
@@ -40,12 +63,32 @@ const SOURCE_LANGUAGES = {
   it: "Italian"
 };
 
+// --- HELPER ---
+
+async function callProxy(payload: any) {
+  const response = await fetch(API_ENDPOINT, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`API Error: ${response.status} - ${text}`);
+  }
+
+  return await response.json();
+}
+
+// --- EXPORTS ---
+
 export const translateText = async (text: string, mode: AppMode, targetLang: TargetLanguage, sourceLang: UILanguage): Promise<TranslationResult> => {
   if (!text.trim()) throw new Error("Input text is empty");
 
   const targetLangName = LANGUAGES[targetLang];
   const sourceLangName = SOURCE_LANGUAGES[sourceLang] || "Czech";
 
+  // Robust System Prompt from previous iteration
   const systemInstruction = `
 You are AmiGo.
 Target Language: ${targetLangName}.
@@ -54,7 +97,7 @@ Source Language: ${sourceLangName} (or mixed).
 TASK:
 1. CHECK NONSENSE: If input is gibberish/random keys, set 'isNonsense': true.
 2. TRANSLATE: Translate the full user input to ${targetLangName}.
-3. LIST WORDS: List the words from YOUR TRANSLATED (${targetLangName}) sentence.
+3. VOCABULARY LIST: Must extract words from the TRANSLATED (${targetLangName}) sentence, NOT the source input.
    CRITICAL: The vocabulary list must ONLY contain ${targetLangName} words. 
    Do NOT list words from the source input.
 
@@ -64,20 +107,12 @@ Output JSON only.
 `;
 
   try {
-    const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+    // Call the PHP Proxy
+    const parsed = await callProxy({
       contents: text,
-      config: {
-        systemInstruction: systemInstruction,
-        responseMimeType: "application/json",
-        responseSchema: translationSchema,
-        temperature: 0.0, 
-      },
+      systemInstruction: systemInstruction,
+      responseSchema: translationSchema
     });
-
-    const jsonText = response.text;
-    if (!jsonText) throw new Error("No response from AI");
-    const parsed = JSON.parse(jsonText);
 
     return {
       original: text,
@@ -96,20 +131,24 @@ Output JSON only.
 
 export const getContextSuggestions = async (lat: number, lng: number, targetLang: TargetLanguage): Promise<{ place: string, suggestions: ContextSuggestion[] }> => {
   const targetLangName = LANGUAGES[targetLang];
+  
+  const prompt = `Identify the place type at coordinates ${lat},${lng}. Act as if this place is in ${targetLangName}-speaking region. Suggest 3 ${targetLangName} phrases relevant to this location context.`;
+
   try {
-    const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: `Place at ${lat},${lng}? Suggest 3 ${targetLangName} phrases for this place. JSON: {placeType, suggestions:[{phrase, translation, phonetics}]}`,
-      config: { responseMimeType: "application/json" }
+    // Call the PHP Proxy
+    const parsed = await callProxy({
+      contents: prompt,
+      systemInstruction: "You are a helpful travel assistant. Return JSON.",
+      responseSchema: contextSuggestionSchema
     });
     
-    const parsed = JSON.parse(response.text || "{}");
     return {
       place: parsed.placeType || "Location",
       suggestions: parsed.suggestions || []
     };
 
   } catch (error) {
+    console.error("Context error:", error);
     return { 
       place: "General", 
       suggestions: [{ phrase: "Ciao", translation: "Ahoj", phonetics: "čao" }] 
