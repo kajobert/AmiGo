@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo, useRef } from "react";
-import { AppMode, WordItem, ContextSuggestion, TranslationHistoryItem, UserProfile, DailyStats, VocabularyItem } from "./types";
+import { AppMode, WordItem, ContextSuggestion, TranslationHistoryItem, UserProfile, DailyStats, VocabularyItem, TargetLanguage } from "./types";
 import { translateText, getContextSuggestions } from "./services/geminiService";
 import { 
     getWords, saveVocabulary, clearAllData, 
@@ -94,7 +94,7 @@ const App: React.FC = () => {
           recognitionRef.current.stop();
       } else {
           const targetCodes = { it: 'it-IT', es: 'es-ES', fr: 'fr-FR', de: 'de-DE' };
-          recognitionRef.current.lang = mode === AppMode.SPEAKING ? 'cs-CZ' : targetCodes[profile.targetLanguage];
+          recognitionRef.current.lang = mode === AppMode.SPEAKING ? (profile.uiLanguage === 'cs' ? 'cs-CZ' : 'en-US') : targetCodes[profile.targetLanguage];
           recognitionRef.current.start();
           setIsListening(true);
       }
@@ -112,7 +112,32 @@ const App: React.FC = () => {
       }, () => setLocating(false));
   };
 
-  // --- PHONETIC SKELETON ALGORITHM ---
+  // --- 🧠 ROBUST FUZZY MATCHER V3.0 ---
+
+  const PHONETIC_RULES: Record<string, [RegExp, string][]> = {
+      // Italian Rules
+      it: [
+          [/gli/g, "li"], [/gn/g, "n"], [/sci/g, "s"], [/sce/g, "s"],
+          [/chi/g, "k"], [/che/g, "k"], [/qu/g, "k"], [/q/g, "k"], [/c/g, "k"], 
+          [/z/g, "s"], [/j/g, "i"], [/y/g, "i"], [/x/g, "ks"],
+          [/š/g, "s"], [/č/g, "c"], [/ř/g, "r"], [/ň/g, "n"] // Czech phonetic inputs
+      ],
+      // Spanish Rules
+      es: [
+          [/ll/g, "j"], [/ñ/g, "n"], [/h/g, ""], 
+          [/qu/g, "k"], [/c/g, "k"], [/z/g, "s"], [/b/g, "v"],
+          [/j/g, "ch"] // simplified
+      ],
+      // French Rules (Simplified)
+      fr: [
+          [/eau/g, "o"], [/au/g, "o"], [/oi/g, "wa"], [/ou/g, "u"],
+          [/qu/g, "k"], [/ç/g, "s"], [/gn/g, "n"]
+      ],
+      // German Rules
+      de: [
+          [/sch/g, "s"], [/v/g, "f"], [/w/g, "v"], [/ei/g, "aj"], [/eu/g, "oj"]
+      ]
+  };
 
   const getLevenshteinDistance = (a: string, b: string) => {
     if (a.length === 0) return b.length;
@@ -136,96 +161,80 @@ const App: React.FC = () => {
     return matrix[b.length][a.length];
   };
 
-  // Create a "Phonetic Skeleton" to bridge Italian/Czech orthography
-  // E.g., "Seňora" -> "senora" (skeleton: snra)
-  //       "Signora" -> "sinyora" (skeleton: snra)
-  const getPhoneticSkeleton = (text: string) => {
-      let s = text.toLowerCase()
-        .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // Remove accents
-        .trim();
-      
-      // 1. Map complex Italian sounds to simple base
-      s = s.replace(/gli/g, "li");
-      s = s.replace(/gn/g, "n"); 
-      s = s.replace(/sci/g, "si");
-      s = s.replace(/sce/g, "se");
-      s = s.replace(/chi/g, "k");
-      s = s.replace(/che/g, "k");
-      
-      // 2. Map Czech sounds to simple base
-      s = s.replace(/ň/g, "n");
-      s = s.replace(/š/g, "s");
-      s = s.replace(/č/g, "c");
-      s = s.replace(/ř/g, "r");
-      s = s.replace(/ž/g, "z");
-      s = s.replace(/ď/g, "d");
-      s = s.replace(/ť/g, "t");
-      
-      // 3. Unify confusables
-      s = s.replace(/j/g, "i");
-      s = s.replace(/y/g, "i");
-      s = s.replace(/w/g, "v");
-      s = s.replace(/q/g, "k");
-      s = s.replace(/x/g, "ks");
-      
-      // 4. Remove double letters
-      s = s.replace(/(.)\1+/g, "$1");
+  const normalizeBasic = (text: string) => {
+      return text.toLowerCase()
+        .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-z0-9]/g, "");
+  };
 
-      // 5. Final strip
-      s = s.replace(/[^a-z0-9]/g, "");
+  const getNormalizedSound = (text: string, lang: TargetLanguage) => {
+      let s = text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
       
+      const rules = PHONETIC_RULES[lang] || PHONETIC_RULES['it'];
+      rules.forEach(([reg, repl]) => {
+          s = s.replace(reg, repl);
+      });
+      
+      // Remove non-alphanumeric and collapse doubles
+      s = s.replace(/[^a-z0-9]/g, "");
+      s = s.replace(/(.)\1+/g, "$1");
       return s;
   };
 
-  // Sliding Window over Skeleton
-  const calculateMatchScore = (rawInput: string, rawTarget: string): number => {
-      const skelInput = getPhoneticSkeleton(rawInput);
-      const skelTarget = getPhoneticSkeleton(rawTarget);
+  const calculateMatchScore = (rawInput: string, rawTarget: string, lang: TargetLanguage) => {
+      // 1. EXACT VISUAL CHECK (Green Checkmark)
+      const normInput = normalizeBasic(rawInput);
+      const normTarget = normalizeBasic(rawTarget);
       
-      if (!skelTarget) return 0;
-      
-      // Shortcut for inclusion
-      if (skelInput.includes(skelTarget)) return 100;
+      if (normInput.includes(normTarget)) {
+          return { score: 100, type: 'exact' as const };
+      }
 
-      const windowSize = skelTarget.length;
+      // 2. PHONETIC CHECK (Ear Icon)
+      const soundInput = getNormalizedSound(rawInput, lang);
+      const soundTarget = getNormalizedSound(rawTarget, lang);
+      
+      if (!soundTarget) return { score: 0, type: 'none' as const };
+
+      const windowSize = soundTarget.length;
       let minDistance = Infinity;
-
-      // Scan through input
-      for (let i = 0; i <= skelInput.length - windowSize + 1; i++) {
-          // Check windows of varying size to account for missing/extra chars
-          for (let offset = -1; offset <= 1; offset++) {
-             const len = windowSize + offset;
-             if (len < 1) continue;
-             if (i + len > skelInput.length) continue;
-             
-             const sub = skelInput.substring(i, i + len);
-             const dist = getLevenshteinDistance(sub, skelTarget);
-             if (dist < minDistance) minDistance = dist;
-          }
+      
+      // Sliding Window
+      for (let i = 0; i <= soundInput.length - windowSize; i++) {
+          const sub = soundInput.substring(i, i + windowSize);
+          const dist = getLevenshteinDistance(sub, soundTarget);
+          if (dist < minDistance) minDistance = dist;
       }
       
-      // Calculate Similarity Score (0-100)
-      // Allow error tolerance proportional to length
-      const maxLen = Math.max(skelTarget.length, 1);
+      // Flexibility window (+/- 1 char)
+      if (windowSize > 1) {
+         for (let i = 0; i <= soundInput.length - (windowSize - 1); i++) {
+            const sub = soundInput.substring(i, i + windowSize - 1);
+            const dist = getLevenshteinDistance(sub, soundTarget);
+            if (dist + 1 < minDistance) minDistance = dist + 1;
+         }
+      }
+
+      const maxLen = Math.max(soundTarget.length, 1);
       const similarity = Math.max(0, 100 - ((minDistance / maxLen) * 100));
       
-      return Math.round(similarity);
+      return { score: Math.round(similarity), type: 'phonetic' as const };
   };
 
-  const processVocabulary = (rawInput: string, vocabList: VocabularyItem[]): VocabularyItem[] => {
+  const processVocabulary = (rawInput: string, vocabList: VocabularyItem[], lang: TargetLanguage): VocabularyItem[] => {
       return vocabList.map(item => {
-          // Compare input vs Target Word (originalForm)
-          const score = calculateMatchScore(rawInput, item.originalForm);
+          // Compare entire input string against the target form
+          const { score, type } = calculateMatchScore(rawInput, item.originalForm, lang);
           
           let status: 'win' | 'lookup' = 'lookup';
           let matchType: 'exact' | 'phonetic' | 'none' = 'none';
 
-          if (score === 100) {
+          if (score === 100 && type === 'exact') {
               status = 'win';
-              matchType = 'exact';
-          } else if (score >= 65) {
+              matchType = 'exact'; 
+          } else if (score >= 65) { // Threshold for phonetic match
               status = 'win';
-              matchType = 'phonetic';
+              matchType = 'phonetic'; 
           }
 
           return { ...item, status, matchType, similarity: score };
@@ -242,7 +251,8 @@ const App: React.FC = () => {
     setError(null);
 
     try {
-      const result = await translateText(textToTranslate, mode, profile.targetLanguage);
+      // PASSING PROFILE.UI_LANGUAGE AS SOURCE LANG
+      const result = await translateText(textToTranslate, mode, profile.targetLanguage, profile.uiLanguage);
       
       if (result.isNonsense) {
           setToast({ message: t.gibberish, type: 'error' });
@@ -250,8 +260,8 @@ const App: React.FC = () => {
           return;
       }
 
-      // Calculate Scores locally based on skeletons
-      const processedVocab = processVocabulary(textToTranslate, result.vocabulary || []);
+      // Calculate Scores locally
+      const processedVocab = processVocabulary(textToTranslate, result.vocabulary || [], profile.targetLanguage);
       
       if (processedVocab.length > 0) {
         const newW = saveVocabulary(processedVocab, profile.targetLanguage);
@@ -366,7 +376,7 @@ const App: React.FC = () => {
                 </button>
             </div>
           </div>
-          <ModeSwitch mode={mode} setMode={setMode} />
+          <ModeSwitch mode={mode} setMode={setMode} t={t} />
         </div>
       </header>
 
@@ -402,7 +412,7 @@ const App: React.FC = () => {
 
                 <div className="flex justify-between items-center p-2.5 border-t border-zinc-100 dark:border-white/5 bg-zinc-50 dark:bg-white/5 rounded-b-3xl">
                     <span className="text-[10px] opacity-40 font-black tracking-[0.2em] ml-2 text-zinc-700 dark:text-zinc-300">
-                        {mode === AppMode.SPEAKING ? `CZ — ${profile.targetLanguage.toUpperCase()}` : `${profile.targetLanguage.toUpperCase()} — CZ`}
+                        {mode === AppMode.SPEAKING ? `${profile.uiLanguage.toUpperCase()} — ${profile.targetLanguage.toUpperCase()}` : `${profile.targetLanguage.toUpperCase()} — ${profile.uiLanguage.toUpperCase()}`}
                     </span>
                     <button
                         onClick={() => handleTranslate()}

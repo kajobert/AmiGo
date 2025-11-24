@@ -13,7 +13,7 @@ export interface VocabularyItem {
   word: string;         // Lemma (e.g. "Stare")
   originalForm: string; // Inflected (e.g. "Stai")
   translation: string;  // Native (e.g. "Jsi")
-  phonetics: string;    // IPA/Czech phonetic for display
+  phonetics?: string;    // informational only
 
   // Calculated on Client
   status?: 'win' | 'lookup'; 

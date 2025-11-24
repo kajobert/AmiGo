@@ -1,29 +1,28 @@
 
 import { GoogleGenAI, Type, Schema } from "@google/genai";
-import { AppMode, TranslationResult, ContextSuggestion, TargetLanguage } from "../types";
+import { AppMode, TranslationResult, ContextSuggestion, TargetLanguage, UILanguage } from "../types";
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 const vocabularyItemSchema: Schema = {
   type: Type.OBJECT,
   properties: {
-    word: { type: Type.STRING, description: "The dictionary base form (Lemma) of the target word." },
-    originalForm: { type: Type.STRING, description: "The specific form found in the translated sentence." },
-    translation: { type: Type.STRING, description: "Native language translation of this specific word." },
-    phonetics: { type: Type.STRING, description: "Intuitive Czech pronunciation (e.g. 'buondžorno'). NO IPA." }
+    word: { type: Type.STRING, description: "Lemma/Base form (e.g. 'Stare')." },
+    originalForm: { type: Type.STRING, description: "Form used in sentence (e.g. 'Stai')." },
+    translation: { type: Type.STRING, description: "Translation of this specific word." }
   },
-  required: ["word", "originalForm", "translation", "phonetics"]
+  required: ["word", "originalForm", "translation"]
 };
 
 const translationSchema: Schema = {
   type: Type.OBJECT,
   properties: {
-    translation: { type: Type.STRING, description: "The correct translated sentence." },
-    czechDefinition: { type: Type.STRING, description: "Meaning back to source language." },
-    phonetics: { type: Type.STRING, description: "Sentence phonetics (Czech style).", nullable: true },
+    translation: { type: Type.STRING, description: "Correct sentence in target language." },
+    czechDefinition: { type: Type.STRING, description: "Meaning in source language." },
+    phonetics: { type: Type.STRING, description: "Sentence phonetics (Czech style, no IPA).", nullable: true },
     detectedLanguage: { type: Type.STRING, description: "Detected language code." },
     isNonsense: { type: Type.BOOLEAN, description: "True if input is random gibberish.", nullable: true },
-    vocabulary: { type: Type.ARRAY, items: vocabularyItemSchema, description: "List of key words in the target sentence." }
+    vocabulary: { type: Type.ARRAY, items: vocabularyItemSchema, description: "List of words found in the TARGET sentence." }
   },
   required: ["translation", "czechDefinition", "detectedLanguage"],
 };
@@ -35,26 +34,31 @@ const LANGUAGES = {
   de: "German"
 };
 
-export const translateText = async (text: string, mode: AppMode, targetLang: TargetLanguage): Promise<TranslationResult> => {
+const SOURCE_LANGUAGES = {
+  cs: "Czech",
+  en: "English",
+  it: "Italian"
+};
+
+export const translateText = async (text: string, mode: AppMode, targetLang: TargetLanguage, sourceLang: UILanguage): Promise<TranslationResult> => {
   if (!text.trim()) throw new Error("Input text is empty");
 
   const targetLangName = LANGUAGES[targetLang];
+  const sourceLangName = SOURCE_LANGUAGES[sourceLang] || "Czech";
 
   const systemInstruction = `
-You are AmiGo, a language translator.
+You are AmiGo.
 Target Language: ${targetLangName}.
-User Native Language: Czech.
+Source Language: ${sourceLangName} (or mixed).
 
 TASK:
-1. CHECK FOR NONSENSE: If input is gibberish/random keys, set 'isNonsense': true.
-2. TRANSLATE: Translate the user's input (which may be mixed languages or phonetic spellings) into correct ${targetLangName}.
-3. EXTRACT VOCABULARY: List the meaningful words from YOUR translated ${targetLangName} sentence. 
-   - Do NOT judge if the user knew them.
-   - Do NOT try to match user input.
-   - Just list the correct words present in the final sentence.
+1. CHECK NONSENSE: If input is gibberish/random keys, set 'isNonsense': true.
+2. TRANSLATE: Translate the full user input to ${targetLangName}.
+3. LIST WORDS: List the words from YOUR TRANSLATED (${targetLangName}) sentence.
+   CRITICAL: The vocabulary list must ONLY contain ${targetLangName} words. 
+   Do NOT list words from the source input.
 
-PHONETICS:
-- Use Intuitive Czech Pronunciation (e.g. "Giorno" -> "džorno"). DO NOT USE IPA.
+PHONETICS: Intuitive Czech pronunciation.
 
 Output JSON only.
 `;
@@ -95,18 +99,11 @@ export const getContextSuggestions = async (lat: number, lng: number, targetLang
   try {
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash",
-      contents: `Determine place type at coords. SIMULATE we are in a similar place in a ${targetLangName} speaking country. Suggest 3 short ${targetLangName} phrases. JSON: placeType, suggestions [{phrase, translation, phonetics}].`,
-      config: {
-        tools: [{googleMaps: {}}],
-        toolConfig: { retrievalConfig: { latLng: { latitude: lat, longitude: lng } } },
-        responseMimeType: "application/json", 
-      }
+      contents: `Place at ${lat},${lng}? Suggest 3 ${targetLangName} phrases for this place. JSON: {placeType, suggestions:[{phrase, translation, phonetics}]}`,
+      config: { responseMimeType: "application/json" }
     });
-
-    const text = response.text;
-    if(!text) return { place: "General", suggestions: [] };
     
-    const parsed = JSON.parse(text);
+    const parsed = JSON.parse(response.text || "{}");
     return {
       place: parsed.placeType || "Location",
       suggestions: parsed.suggestions || []
@@ -115,9 +112,7 @@ export const getContextSuggestions = async (lat: number, lng: number, targetLang
   } catch (error) {
     return { 
       place: "General", 
-      suggestions: [
-        { phrase: "Hello", translation: "Ahoj", phonetics: "..." },
-      ] 
+      suggestions: [{ phrase: "Ciao", translation: "Ahoj", phonetics: "čao" }] 
     };
   }
 };
