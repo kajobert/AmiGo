@@ -6,15 +6,20 @@ export enum AppMode {
 
 export type TargetLanguage = 'it' | 'es' | 'fr' | 'de';
 export type UILanguage = 'en' | 'cs' | 'it';
+export type Theme = 'dark' | 'light';
 
 export interface VocabularyItem {
-  word: string; 
-  originalForm: string; 
-  inputMatch: string; 
-  translation: string;
-  phonetics: string;
+  // Core data from AI
+  word: string;         // Lemma (e.g. "Stare")
+  originalForm: string; // Inflected (e.g. "Stai")
+  translation: string;  // Native (e.g. "Jsi")
+  phonetics: string;    // IPA/Czech phonetic for display
+
+  // Calculated on Client
   status?: 'win' | 'lookup'; 
-  matchType?: string; 
+  matchType?: 'exact' | 'phonetic' | 'none'; 
+  similarity?: number;  // 0-100 score
+  inputMatch?: string;  // The substring from user input used for matching
 }
 
 export interface TranslationResult {
@@ -23,6 +28,7 @@ export interface TranslationResult {
   czechDefinition: string; 
   phonetics?: string | null; 
   detectedLanguage?: string;
+  isNonsense?: boolean; 
   vocabulary?: VocabularyItem[];
 }
 
@@ -35,7 +41,7 @@ export interface TranslationHistoryItem extends TranslationResult {
 
 export interface WordItem {
   word: string;
-  language: TargetLanguage; // New: Filter by language
+  language: TargetLanguage; 
   usedForms: string[]; 
   translation?: string;
   phonetics?: string;
@@ -68,6 +74,7 @@ export interface UserProfile {
   badges: Badge[];
   uiLanguage: UILanguage;
   targetLanguage: TargetLanguage;
+  theme: Theme;
 }
 
 export interface DailyStats {

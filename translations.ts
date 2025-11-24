@@ -1,3 +1,4 @@
+
 export type UILanguage = 'en' | 'cs' | 'it';
 
 export const UI_STRINGS = {
@@ -37,7 +38,9 @@ export const UI_STRINGS = {
     username: "Username",
     chooseAvatar: "Choose Avatar",
     lvl: "Lvl",
-    xp: "Total XP"
+    xp: "Total XP",
+    searchPlaceholder: "Search words...",
+    gibberish: "I didn't catch that. Try again?"
   },
   cs: {
     speak: "Mluvit",
@@ -75,7 +78,9 @@ export const UI_STRINGS = {
     username: "Přezdívka",
     chooseAvatar: "Vyber Avatara",
     lvl: "Úroveň",
-    xp: "Celkem XP"
+    xp: "Celkem XP",
+    searchPlaceholder: "Hledat slova...",
+    gibberish: "To znělo jako nesmysl. Zkus to znovu?"
   },
   it: {
     speak: "Parla",
@@ -113,6 +118,8 @@ export const UI_STRINGS = {
     username: "Nome utente",
     chooseAvatar: "Scegli Avatar",
     lvl: "Liv",
-    xp: "XP Totali"
+    xp: "XP Totali",
+    searchPlaceholder: "Cerca parole...",
+    gibberish: "Non ho capito. Riprova?"
   }
 };

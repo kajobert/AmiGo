@@ -3,16 +3,88 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>Il Vicino</title>
+    <title>AmiGo</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ['Inter', 'sans-serif'],
+            },
+            animation: {
+              'fade-in': 'fadeIn 0.5s ease-out',
+              'fade-in-up': 'fadeInUp 0.5s ease-out',
+            },
+            keyframes: {
+              fadeIn: {
+                '0%': { opacity: '0' },
+                '100%': { opacity: '1' },
+              },
+              fadeInUp: {
+                '0%': { opacity: '0', transform: 'translateY(20px)' },
+                '100%': { opacity: '1', transform: 'translateY(0)' },
+              },
+            }
+          }
+        }
+      }
+    </script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
+      :root {
+        --bg-void: #050505;
+        --glass-surface: rgba(255, 255, 255, 0.03);
+        --glass-border: rgba(255, 255, 255, 0.08);
+        --text-primary: #f4f4f5;
+        --text-secondary: #a1a1aa;
+        --holo-gradient: linear-gradient(135deg, rgba(20, 184, 166, 0.3), rgba(168, 85, 247, 0.3), rgba(249, 115, 22, 0.3));
+      }
+
+      .light-theme {
+        --bg-void: #f0f2f5;
+        --glass-surface: rgba(255, 255, 255, 0.8);
+        --glass-border: rgba(0, 0, 0, 0.05);
+        --text-primary: #18181b;
+        --text-secondary: #71717a;
+        --holo-gradient: linear-gradient(135deg, rgba(45, 212, 191, 0.4), rgba(192, 132, 252, 0.4), rgba(251, 146, 60, 0.4));
+      }
+
       body {
         font-family: 'Inter', sans-serif;
-        background-color: #000000; /* OLED Black */
+        background-color: var(--bg-void);
+        color: var(--text-primary);
+        transition: background-color 0.5s ease, color 0.5s ease;
         overscroll-behavior-y: none;
       }
+      
+      .prismatic-card {
+        background: var(--glass-surface);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border: 1px solid var(--glass-border);
+        box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+      }
+
+      .prismatic-border {
+        position: relative;
+      }
+      .prismatic-border::after {
+        content: '';
+        position: absolute;
+        inset: -1px;
+        border-radius: inherit;
+        padding: 1px;
+        background: var(--holo-gradient);
+        -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+        -webkit-mask-composite: xor;
+        mask-composite: exclude;
+        pointer-events: none;
+        opacity: 0.5;
+      }
+
       .no-scrollbar::-webkit-scrollbar {
         display: none;
       }
@@ -25,9 +97,11 @@
 {
   "imports": {
     "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0",
-    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
-    "react/": "https://aistudiocdn.com/react@^19.2.0/",
-    "react": "https://aistudiocdn.com/react@^19.2.0"
+    "react-dom/client": "https://aistudiocdn.com/react-dom@^18.2.0/client",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^18.2.0/",
+    "react/": "https://aistudiocdn.com/react@^18.2.0/",
+    "react": "https://aistudiocdn.com/react@^18.2.0",
+    "framer-motion": "https://aistudiocdn.com/framer-motion@^10.16.4"
   }
 }
 </script>

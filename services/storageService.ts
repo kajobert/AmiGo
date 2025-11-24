@@ -1,4 +1,3 @@
-
 import { WordItem, VocabularyItem, TranslationHistoryItem, UserProfile, Badge, TargetLanguage, DailyStats } from "../types";
 
 const WORD_STORAGE_KEY = "amigo_words_v1";
@@ -21,7 +20,8 @@ const DEFAULT_PROFILE: UserProfile = {
   level: 1,
   badges: DEFAULT_BADGES,
   uiLanguage: 'cs',
-  targetLanguage: 'it'
+  targetLanguage: 'it',
+  theme: 'dark'
 };
 
 // --- DAILY STATS & ENERGY ---
@@ -94,7 +94,8 @@ export const getUserProfile = (): UserProfile => {
         const existing = parsed.badges?.find((b: Badge) => b.id === defBadge.id);
         return existing ? existing : defBadge;
       });
-      return { ...parsed, badges: mergedBadges };
+      // Ensure theme exists for migrated users
+      return { theme: 'dark', ...parsed, badges: mergedBadges };
     }
     return DEFAULT_PROFILE;
   } catch (e) {
@@ -186,6 +187,20 @@ export const saveVocabulary = (newItems: VocabularyItem[], lang: TargetLanguage)
       const observedForm = item.originalForm || item.word;
       const isWin = item.status === 'win';
       
+      // Polysemy Logic: Merge translations if word exists but translation differs
+      let mergedTranslation = item.translation;
+      if (existing && existing.translation) {
+          const parts = existing.translation.split(',').map(s => s.trim().toLowerCase());
+          const newPart = item.translation.toLowerCase();
+          if (!parts.includes(newPart)) {
+              // New meaning found! Append it.
+              mergedTranslation = `${existing.translation}, ${item.translation}`;
+          } else {
+              // Meaning exists, keep existing formatted string
+              mergedTranslation = existing.translation;
+          }
+      }
+
       if (existing) {
         let newLookups = existing.lookups || existing.count; 
         let newWins = existing.wins || 0;
@@ -197,7 +212,8 @@ export const saveVocabulary = (newItems: VocabularyItem[], lang: TargetLanguage)
         }
         wordMap.set(key, {
           ...existing,
-          language: lang, // Ensure tag
+          language: lang,
+          translation: mergedTranslation, // Update with merged translation
           usedForms: currentForms, count: newCount, lookups: newLookups, wins: newWins, lastUsed: Date.now()
         });
       } else {
@@ -205,7 +221,7 @@ export const saveVocabulary = (newItems: VocabularyItem[], lang: TargetLanguage)
         if (isWin) initialWins = 1; else initialLookups = 1;
         const initialCount = Math.max(0, initialLookups - initialWins);
         wordMap.set(key, {
-          word: item.word, language: lang, usedForms: [observedForm], translation: item.translation, phonetics: item.phonetics,
+          word: item.word, language: lang, usedForms: [observedForm], translation: mergedTranslation, phonetics: item.phonetics,
           count: initialCount, lookups: initialLookups, wins: initialWins, lastUsed: Date.now()
         });
       }

@@ -8,22 +8,22 @@ const vocabularyItemSchema: Schema = {
   type: Type.OBJECT,
   properties: {
     word: { type: Type.STRING, description: "The dictionary base form (Lemma) of the target word." },
-    originalForm: { type: Type.STRING, description: "The exact form found in the translation." },
-    inputMatch: { type: Type.STRING, description: "The specific word from the USER INPUT that corresponds to this. Copy exactly." },
-    translation: { type: Type.STRING, description: "Native language translation of this word." },
-    phonetics: { type: Type.STRING, description: "Native phonetics for the target word." }
+    originalForm: { type: Type.STRING, description: "The specific form found in the translated sentence." },
+    translation: { type: Type.STRING, description: "Native language translation of this specific word." },
+    phonetics: { type: Type.STRING, description: "Intuitive Czech pronunciation (e.g. 'buondžorno'). NO IPA." }
   },
-  required: ["word", "originalForm", "inputMatch", "translation", "phonetics"]
+  required: ["word", "originalForm", "translation", "phonetics"]
 };
 
 const translationSchema: Schema = {
   type: Type.OBJECT,
   properties: {
-    translation: { type: Type.STRING, description: "The translated text." },
-    czechDefinition: { type: Type.STRING, description: "The meaning/translation back to source language." },
-    phonetics: { type: Type.STRING, description: "Phonetic pronunciation.", nullable: true },
-    detectedLanguage: { type: Type.STRING, description: "The detected language code (e.g., 'cs', 'it', 'es')." },
-    vocabulary: { type: Type.ARRAY, items: vocabularyItemSchema, description: "List of significant words." }
+    translation: { type: Type.STRING, description: "The correct translated sentence." },
+    czechDefinition: { type: Type.STRING, description: "Meaning back to source language." },
+    phonetics: { type: Type.STRING, description: "Sentence phonetics (Czech style).", nullable: true },
+    detectedLanguage: { type: Type.STRING, description: "Detected language code." },
+    isNonsense: { type: Type.BOOLEAN, description: "True if input is random gibberish.", nullable: true },
+    vocabulary: { type: Type.ARRAY, items: vocabularyItemSchema, description: "List of key words in the target sentence." }
   },
   required: ["translation", "czechDefinition", "detectedLanguage"],
 };
@@ -40,13 +40,24 @@ export const translateText = async (text: string, mode: AppMode, targetLang: Tar
 
   const targetLangName = LANGUAGES[targetLang];
 
-  const systemInstruction = mode === AppMode.SPEAKING 
-    ? `Role: Expert Language Tutor.
-       Task: Translate user input to ${targetLangName} OR Correct their ${targetLangName}. 
-       Provide phonetics for the ${targetLangName} text.
-       'czechDefinition' must be the meaning in the user's native language.
-       Extract vocabulary.`
-    : `Role: Translator. Translate user input (${targetLangName}) to their Native Language. Extract vocabulary.`;
+  const systemInstruction = `
+You are AmiGo, a language translator.
+Target Language: ${targetLangName}.
+User Native Language: Czech.
+
+TASK:
+1. CHECK FOR NONSENSE: If input is gibberish/random keys, set 'isNonsense': true.
+2. TRANSLATE: Translate the user's input (which may be mixed languages or phonetic spellings) into correct ${targetLangName}.
+3. EXTRACT VOCABULARY: List the meaningful words from YOUR translated ${targetLangName} sentence. 
+   - Do NOT judge if the user knew them.
+   - Do NOT try to match user input.
+   - Just list the correct words present in the final sentence.
+
+PHONETICS:
+- Use Intuitive Czech Pronunciation (e.g. "Giorno" -> "džorno"). DO NOT USE IPA.
+
+Output JSON only.
+`;
 
   try {
     const response = await ai.models.generateContent({
@@ -56,7 +67,7 @@ export const translateText = async (text: string, mode: AppMode, targetLang: Tar
         systemInstruction: systemInstruction,
         responseMimeType: "application/json",
         responseSchema: translationSchema,
-        temperature: 0.0,
+        temperature: 0.0, 
       },
     });
 
@@ -66,10 +77,11 @@ export const translateText = async (text: string, mode: AppMode, targetLang: Tar
 
     return {
       original: text,
-      translation: parsed.translation,
+      translation: parsed.translation || "...",
       czechDefinition: parsed.czechDefinition || "Translation",
       phonetics: parsed.phonetics || null,
       detectedLanguage: parsed.detectedLanguage,
+      isNonsense: parsed.isNonsense || false,
       vocabulary: parsed.vocabulary || []
     };
   } catch (error) {
