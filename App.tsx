@@ -118,6 +118,18 @@ const App: React.FC = () => {
     return matrix[b.length][a.length];
   };
 
+  function validateAiAnalysis(rawInput: string, aiResponse: any[]) {
+    const lowerInput = rawInput.toLowerCase();
+    return aiResponse.map(item => {
+      // If AI claims a word exists but it's not in the input string -> Hallucination.
+      if (item.inputMatch && !lowerInput.includes(item.inputMatch.toLowerCase())) {
+        console.warn(`⚠️ Correcting Hallucination: ${item.inputMatch}`);
+        return { ...item, status: 'gap', inputMatch: '???' };
+      }
+      return item;
+    });
+  }
+
   const handleTranslate = async (textOverride?: string) => {
     const textToTranslate = textOverride || inputText;
     if (!textToTranslate.trim()) return;
@@ -137,26 +149,20 @@ const App: React.FC = () => {
       const aiVocab = result.vocabulary || [];
       const userTokens = normalizeText(textToTranslate).split(/\s+/);
 
-      const finalVocabToSave = aiVocab.map(item => {
-          const normalizedInputMatch = normalizeText(item.inputMatch);
-          const normalizedOriginal = normalizeText(item.originalForm);
-          const normalizedLemma = normalizeText(item.word);
-          
-          let status: 'win' | 'lookup' = 'lookup';
-          let matchType = 'none';
+      const validatedVocab = validateAiAnalysis(textToTranslate, aiVocab);
 
+      const finalVocabToSave = validatedVocab.map(item => {
+          // Trust the AI's status first, but allow for logic override if needed later.
+          // For now, we use the validated status (which might have been downgraded to 'gap').
+          
+          let status = item.status || 'lookup';
+          let matchType = item.matchType || 'none';
+
+          // Override for Listening Mode (if needed)
           if (mode === AppMode.LISTENING) {
              status = 'win'; matchType = 'exposure';
-          } else {
-             const exactMatch = userTokens.includes(normalizedOriginal) || userTokens.includes(normalizedLemma);
-             if (exactMatch) { status = 'win'; matchType = 'exact'; } 
-             else {
-                 const dist = getLevenshteinDistance(normalizedInputMatch, normalizedOriginal);
-                 const maxLength = Math.max(normalizedInputMatch.length, normalizedOriginal.length);
-                 const similarity = 1 - (dist / maxLength);
-                 if (maxLength > 0 && similarity > 0.5) { status = 'win'; matchType = 'phonetic'; } 
-             }
           }
+
           return { ...item, status, matchType };
       });
 
@@ -189,6 +195,7 @@ const App: React.FC = () => {
       }
 
     } catch (err) {
+        console.error(err);
         setError("An unexpected error occurred.");
     } finally {
       setLoading(false);
